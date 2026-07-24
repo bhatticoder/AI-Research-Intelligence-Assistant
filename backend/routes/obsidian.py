@@ -1,15 +1,17 @@
 """
-Obsidian Routes - Vault sync status, manual sync, IEEE paper generation, and RAG search.
+Obsidian Routes v2.0 — Vault sync, IEEE paper generation + Overleaf push, RAG search.
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
+import logging
 
 from services.obsidian import ObsidianSyncService
 from services.rag import RAGService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/obsidian", tags=["Obsidian"])
 obsidian_service = ObsidianSyncService()
 rag_service = RAGService()
@@ -23,6 +25,9 @@ class GeneratePaperRequest(BaseModel):
     topic: str
     target_journal: Optional[str] = "IEEE Transactions on Neural Networks and Learning Systems"
     requirements: Optional[str] = ""
+    n_sources: Optional[int] = 8
+    push_to_overleaf: Optional[bool] = True   # NEW: auto-push to Overleaf
+    overleaf_browser: Optional[str] = "chrome"  # NEW: which browser has Overleaf session
 
 
 class QueryRequest(BaseModel):
@@ -79,24 +84,87 @@ async def stop_watching():
 
 @router.post("/generate-paper")
 async def generate_paper(req: GeneratePaperRequest):
-    """Generate an IEEE Transactions research paper directly from Obsidian command or plugin."""
+    """
+    Generate a complete IEEE research paper:
+    1. Retrieve relevant literature from ChromaDB (researcher's own indexed papers)
+    2. Generate full paper via local LLM (Markdown + IEEEtran LaTeX)
+    3. Save Markdown to Obsidian vault's Generated Papers/ folder
+    4. Optionally push LaTeX to Overleaf and return the project URL
+
+    The Obsidian plugin displays a clickable 'Open in Overleaf' button
+    with the returned project URL.
+    """
     try:
         vault_path = obsidian_service.vault_path or r"G:\Obsedian Files\ARIA"
         gen_dir = os.path.join(vault_path, "Generated Papers")
+
+        # ── Step 1: Generate paper (Markdown + LaTeX) ─────────────────────
         result = await obsidian_service.paper_generator.generate_paper(
             topic=req.topic,
             journal=req.target_journal or "IEEE Transactions on Neural Networks and Learning Systems",
             requirements=req.requirements or "",
-            output_dir=gen_dir
+            output_dir=gen_dir,
+            n_sources=req.n_sources or 8,
         )
-        # Update Dashboard
+
+        # ── Step 2: Update Obsidian Dashboard ─────────────────────────────
         await obsidian_service.update_dashboard()
-        return {
+
+        # ── Step 3: Push to Overleaf (optional) ───────────────────────────
+        overleaf_result = None
+        if req.push_to_overleaf and result.get("tex_content"):
+            try:
+                from services.overleaf_service import OverleafService
+                ov_svc = OverleafService(browser=req.overleaf_browser or "chrome")
+                overleaf_result = await ov_svc.push_paper_to_overleaf(
+                    title=result["title"],
+                    tex_content=result["tex_content"],
+                    bib_content=result.get("bib_content", ""),
+                    journal=req.target_journal or "IEEE Transactions",
+                )
+                logger.info(
+                    f"[API] Paper pushed to Overleaf: {overleaf_result.get('project_url')}"
+                )
+            except Exception as ov_exc:
+                logger.warning(f"[API] Overleaf push failed (non-fatal): {ov_exc}")
+                overleaf_result = {
+                    "status": "failed",
+                    "error": str(ov_exc),
+                    "project_url": None,
+                }
+
+        # ── Build response ─────────────────────────────────────────────────
+        response = {
             "status": "success",
             "message": "IEEE Paper generated successfully",
-            "paper": result
+            "paper": {
+                "title": result["title"],
+                "filename": result["filename"],
+                "file_path": result["file_path"],
+                "journal": result["journal"],
+                "topic": result["topic"],
+                "generated_at": result["generated_at"],
+                "sources_count": len(result.get("sources", [])),
+                # Don't send full content in response — too large
+                "content_preview": (result.get("content", "")[:500] + "…"),
+            },
         }
+
+        if overleaf_result:
+            response["overleaf"] = {
+                "status": overleaf_result.get("status"),
+                "project_url": overleaf_result.get("project_url"),
+                "project_id": overleaf_result.get("project_id"),
+                "project_name": overleaf_result.get("project_name"),
+                "error": overleaf_result.get("error"),
+            }
+        else:
+            response["overleaf"] = None
+
+        return response
+
     except Exception as e:
+        logger.error(f"[API] Paper generation failed: {e}", exc_info=True)
         raise HTTPException(500, f"Paper generation failed: {str(e)}")
 
 

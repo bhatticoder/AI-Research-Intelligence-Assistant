@@ -76,3 +76,8 @@ orjson==3.10.12
 # --- Analytics ---
 scikit-learn==1.6.0
 numpy==1.26.4
+
+# --- Overleaf Integration ---
+pyoverleaf>=0.4.0              # Unofficial Overleaf Python API
+websocket-client>=1.7.0        # Required by pyoverleaf for real-time connections
+browser-cookie3>=0.19.1        # Reads Chrome/Firefox cookies for Overleaf auth

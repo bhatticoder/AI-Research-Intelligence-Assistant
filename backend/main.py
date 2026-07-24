@@ -29,6 +29,7 @@ from routes import (
     reports_router,
     admin_router,
 )
+from routes.overleaf import router as overleaf_router
 from services.rag import RAGService
 
 settings = get_settings()
@@ -102,6 +103,7 @@ app.include_router(obsidian_router)
 app.include_router(graph_router)
 app.include_router(reports_router)
 app.include_router(admin_router)
+app.include_router(overleaf_router)  # Overleaf integration
 class ConnectionManager:
     """Manages active WebSocket connections."""
 
