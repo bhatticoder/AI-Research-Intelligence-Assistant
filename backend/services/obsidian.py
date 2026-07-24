@@ -172,33 +172,78 @@ class ObsidianSyncService:
     # ── Auto Ingestion & Processing ───────────────────────────────
 
     async def _ingest_file(self, vault_file: VaultFile):
-        """Process and embed vault document into ChromaDB."""
-        # Skip Dashboard or Generated Papers from auto-ingestion loops
+        """
+        Process and embed a vault document into ChromaDB.
+
+        Upgrades (Phase 2):
+          - Enriched metadata: author, title, year, section extracted from PDF
+            metadata dict and Obsidian frontmatter — powers grounded citations
+            in the IEEE paper generator.
+          - Skips Commands/ and Generated Papers/ to avoid circular ingestion.
+        """
         rel = vault_file.relative_path.replace("\\", "/")
-        if rel in ["Dashboard.md"] or rel.startswith("Generated Papers/"):
+        skip_prefixes = ("Dashboard.md", "Generated Papers/", "Commands/", "Templates/")
+        if any(rel == p or rel.startswith(p) for p in skip_prefixes):
             return
 
         try:
-            logger.info(f"Auto-ingesting document into ChromaDB: {vault_file.relative_path}")
+            logger.info(f"[Ingest] Processing → {vault_file.relative_path}")
             doc_result = await self.doc_processor.process_file(vault_file.path)
-            if doc_result.chunks:
-                doc_id = f"obsidian_{hashlib.md5(vault_file.relative_path.encode()).hexdigest()[:12]}"
-                meta = {
-                    "file_name": vault_file.name,
-                    "relative_path": vault_file.relative_path,
-                    "source": "obsidian",
-                    "tags": ",".join(vault_file.tags),
-                }
-                metadatas = [meta] * len(doc_result.chunks)
-                await self.embedding_service.add_documents(
-                    doc_id=doc_id,
-                    chunks=doc_result.chunks,
-                    metadatas=metadatas
-                )
-                self.status.indexed_documents += 1
-                logger.info(f"Successfully embedded {len(doc_result.chunks)} chunks from {vault_file.name}")
-        except Exception as e:
-            logger.error(f"Failed to ingest file {vault_file.path}: {e}")
+
+            if not doc_result.chunks:
+                logger.warning(f"[Ingest] No chunks produced from {vault_file.name}. Skipping.")
+                return
+
+            doc_id = f"obsidian_{hashlib.md5(vault_file.relative_path.encode()).hexdigest()[:12]}"
+
+            # ── Rich metadata extraction ──────────────────────────────
+            # 1. Start with Obsidian frontmatter (if any)
+            fm = doc_result.metadata.get("frontmatter", {}) or {}
+
+            # 2. Overlay with PDF embedded metadata
+            pdf_meta = doc_result.metadata.get("pdf_metadata", {}) or {}
+            pdf_author = pdf_meta.get("author", "") or pdf_meta.get("Author", "")
+            pdf_title  = pdf_meta.get("title",  "") or pdf_meta.get("Title",  "")
+
+            # 3. Derive year from modification time as fallback
+            year_str = str(vault_file.modified.year) if vault_file.modified else str(datetime.now().year)
+
+            base_meta: dict = {
+                "file_name":     vault_file.name,
+                "relative_path": vault_file.relative_path,
+                "source":        "obsidian",
+                "tags":          ",".join(vault_file.tags),
+                "document_id":   doc_id,
+                # Citation-quality fields — used by IEEEPaperGenerator
+                "author":  (fm.get("author") or fm.get("authors") or pdf_author or "Author et al."),
+                "title":   (fm.get("title")  or pdf_title  or vault_file.name.replace(".pdf", "").replace(".md", "").replace("_", " ")),
+                "year":    str(fm.get("year") or fm.get("date", year_str)[:4] if fm.get("date") else year_str),
+                "journal": (fm.get("journal") or fm.get("venue") or "IEEE Transactions"),
+                "doi":     str(fm.get("doi", "")),
+            }
+
+            # Per-chunk metadata (add chunk index for provenance)
+            metadatas = []
+            for i in range(len(doc_result.chunks)):
+                chunk_meta = dict(base_meta)
+                chunk_meta["chunk_index"] = str(i)
+                metadatas.append(chunk_meta)
+
+            await self.embedding_service.add_documents(
+                doc_id=doc_id,
+                chunks=doc_result.chunks,
+                metadatas=metadatas,
+            )
+            self.status.indexed_documents += 1
+            logger.info(
+                f"[Ingest] ✅ {vault_file.name} → {len(doc_result.chunks)} chunks "
+                f"| author='{base_meta['author']}' year={base_meta['year']}"
+            )
+
+        except Exception as exc:
+            logger.error(f"[Ingest] ❌ Failed to ingest {vault_file.path}: {exc}", exc_info=True)
+
+
 
     # ── Command Processing ────────────────────────────────────────
 
