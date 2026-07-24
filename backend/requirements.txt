@@ -1,5 +1,5 @@
 # ============================================
-# ARIA Backend Dependencies
+# ARIA Backend Dependencies (Obsidian + Overleaf)
 # ============================================
 
 # --- Web Framework ---
@@ -10,14 +10,7 @@ websockets==14.1
 
 # --- Database ---
 sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
-alembic==1.14.0
-psycopg2-binary==2.9.10
-
-# --- Auth ---
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.2.1
+aiosqlite==0.20.0
 
 # --- LLM & AI ---
 langchain==0.3.14
@@ -33,48 +26,18 @@ python-docx==0.8.11
 markdown==3.7
 beautifulsoup4==4.12.2
 chardet==5.2.0
-pdf2image==1.16.3
 pymupdf==1.23.8
-pytesseract==0.3.10
 pyyaml==6.0
 aiofiles==24.1.0
 
-# --- OCR (PaddleOCR for scanned PDFs, research papers, tables) ---
-paddlepaddle==2.6.2
-paddleocr==2.9.1
-
-# --- Table Extraction ---
-tabula-py==2.5.0
+# --- Data & Utilities ---
 pandas==2.2.3
 tiktoken==0.8.0
-
-# --- Background Jobs ---
-celery==5.4.0
-redis==5.2.1
-
-# --- Knowledge Graph ---
-networkx==3.4.2
-
-# --- Report Generation ---
-reportlab==4.2.5
-jinja2==3.1.5
-
-# --- News & APIs ---
 httpx==0.27.2
-feedparser==6.0.11
-arxiv==2.1.3
-
-# --- File Storage ---
-minio==7.2.12
-
-# --- Utilities ---
 python-dotenv==1.0.1
 pydantic==2.10.4
 pydantic-settings==2.7.1
 orjson==3.10.12
-
-# --- Analytics ---
-scikit-learn==1.6.0
 numpy==1.26.4
 
 # --- Overleaf Integration ---

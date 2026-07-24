@@ -28,8 +28,9 @@ class Settings(BaseSettings):
 
     # --- Ollama ---
     ollama_base_url: str = "http://localhost:11434"
-    ollama_chat_model: str = "llama3.1:8b"
+    ollama_chat_model: str = "llama3.2"          # 3B params, ~2 GB — fits in 12 GB RAM
     ollama_embed_model: str = "nomic-embed-text"
+    ollama_num_ctx: int = 2048                   # Context window — lower = less RAM
 
     # --- MinIO ---
     minio_endpoint: str = "localhost:9000"

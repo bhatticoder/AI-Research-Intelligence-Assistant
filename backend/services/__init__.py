@@ -3,9 +3,8 @@ from services.embeddings import EmbeddingService
 from services.document_processor import DocumentProcessor
 from services.rag import RAGService
 from services.obsidian import ObsidianSyncService
-from services.knowledge_graph import KnowledgeGraphService
-from services.report_generator import ReportGenerator
-from services.news_fetcher import NewsFetcher
+from services.ieee_paper_generator import IEEEPaperGenerator
+from services.overleaf_service import OverleafService
 
 __all__ = [
     "LLMService",
@@ -13,7 +12,6 @@ __all__ = [
     "DocumentProcessor",
     "RAGService",
     "ObsidianSyncService",
-    "KnowledgeGraphService",
-    "ReportGenerator",
-    "NewsFetcher",
+    "IEEEPaperGenerator",
+    "OverleafService",
 ]

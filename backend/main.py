@@ -1,34 +1,20 @@
 """
 ARIA - AI Research & Intelligence Assistant
 Main FastAPI Application Entry Point
-
-Connects all routes, initializes services, and manages application lifecycle.
 """
 
 import json
 import logging
-from contextlib import asynccontextmanager
-
-import sys
 import asyncio
-
-
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 
 from config import get_settings
 from database import init_db, close_db
-from routes import (
-    auth_router,
-    documents_router,
-    chat_router,
-    obsidian_router,
-    graph_router,
-    reports_router,
-    admin_router,
-)
+from routes.obsidian import router as obsidian_router, obsidian_service
 from routes.overleaf import router as overleaf_router
 from services.rag import RAGService
 
@@ -41,7 +27,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aria")
 
-from routes.obsidian import obsidian_service
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,16 +50,16 @@ async def lifespan(app: FastAPI):
     await obsidian_service.stop_watching()
     await close_db()
 
+
 app = FastAPI(
     title="ARIA - AI Research & Intelligence Assistant",
-    description="Full-stack AI system for research, knowledge management, and document analysis",
-    version="1.0.0",
+    description="Local AI Research Assistant with Obsidian Frontend & Overleaf Integration",
+    version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )
 
-from fastapi.responses import JSONResponse
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -96,14 +81,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router)
-app.include_router(documents_router)
-app.include_router(chat_router)
 app.include_router(obsidian_router)
-app.include_router(graph_router)
-app.include_router(reports_router)
-app.include_router(admin_router)
-app.include_router(overleaf_router)  # Overleaf integration
+app.include_router(overleaf_router)
+
+
 class ConnectionManager:
     """Manages active WebSocket connections."""
 
@@ -115,7 +96,8 @@ class ConnectionManager:
         self.active.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active.remove(websocket)
+        if websocket in self.active:
+            self.active.remove(websocket)
 
     async def send_json(self, websocket: WebSocket, data: dict):
         await websocket.send_json(data)
@@ -161,17 +143,18 @@ async def websocket_chat(websocket: WebSocket):
 @app.get("/health")
 @app.get("/api/health")
 async def health():
-    return {"status": "healthy", "service": "ARIA", "version": "1.0.0"}
+    return {"status": "healthy", "service": "ARIA", "version": "2.0.0"}
 
 
 @app.get("/")
 async def root():
     return {
         "name": "ARIA - AI Research & Intelligence Assistant",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "docs": "/docs",
         "health": "/health",
     }
+
 
 if __name__ == "__main__":
     import uvicorn
