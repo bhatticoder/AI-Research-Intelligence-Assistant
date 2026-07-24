@@ -1,0 +1,58 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Docker volumes
+postgres_data/
+redis_data/
+chroma_data/
+minio_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+uploads/
+*.pdf
+*.docx
+
+# Databases
+sqlite.db
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+chroma_db/
+
+# Tool caches
+.claude/
+test.txt
+
+# Logs
+*.log
+logs/
