@@ -22,6 +22,7 @@ from config import get_settings
 from services.document_processor import DocumentProcessor
 from services.embeddings import EmbeddingService
 from services.ieee_paper_generator import IEEEPaperGenerator
+from services.ieee_pdf_renderer import IEEEPDFRenderer
 from services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class ObsidianSyncService:
         self.doc_processor = DocumentProcessor()
         self.embedding_service = EmbeddingService()
         self.paper_generator = IEEEPaperGenerator()
+        self.pdf_renderer = IEEEPDFRenderer()
         self.llm_service = LLMService()
 
         # Ensure essential directories exist inside vault
@@ -208,18 +210,35 @@ class ObsidianSyncService:
             # 3. Derive year from modification time as fallback
             year_str = str(vault_file.modified.year) if vault_file.modified else str(datetime.now().year)
 
+            # Extract fields safely (handles datetime objects, lists, ints, None)
+            author_raw = fm.get("author") or fm.get("authors") or pdf_author or "Author et al."
+            author_val = ", ".join(str(a) for a in author_raw) if isinstance(author_raw, list) else str(author_raw)
+
+            title_raw = fm.get("title") or pdf_title or vault_file.name.replace(".pdf", "").replace(".md", "").replace("_", " ")
+            title_val = str(title_raw)
+
+            year_raw = fm.get("year") or fm.get("date") or year_str
+            year_val = str(year_raw)[:4]
+
+            journal_raw = fm.get("journal") or fm.get("venue") or "IEEE Transactions"
+            journal_val = str(journal_raw)
+
+            doi_val = str(fm.get("doi", ""))
+
+            tags_val = ",".join(vault_file.tags) if isinstance(vault_file.tags, (list, set, tuple)) else str(vault_file.tags)
+
             base_meta: dict = {
                 "file_name":     vault_file.name,
                 "relative_path": vault_file.relative_path,
                 "source":        "obsidian",
-                "tags":          ",".join(vault_file.tags),
+                "tags":          tags_val,
                 "document_id":   doc_id,
                 # Citation-quality fields — used by IEEEPaperGenerator
-                "author":  (fm.get("author") or fm.get("authors") or pdf_author or "Author et al."),
-                "title":   (fm.get("title")  or pdf_title  or vault_file.name.replace(".pdf", "").replace(".md", "").replace("_", " ")),
-                "year":    str(fm.get("year") or fm.get("date", year_str)[:4] if fm.get("date") else year_str),
-                "journal": (fm.get("journal") or fm.get("venue") or "IEEE Transactions"),
-                "doi":     str(fm.get("doi", "")),
+                "author":  author_val,
+                "title":   title_val,
+                "year":    year_val,
+                "journal": journal_val,
+                "doi":     doi_val,
             }
 
             # Per-chunk metadata (add chunk index for provenance)
@@ -243,7 +262,166 @@ class ObsidianSyncService:
         except Exception as exc:
             logger.error(f"[Ingest] ❌ Failed to ingest {vault_file.path}: {exc}", exc_info=True)
 
+    # ── Batch Document Conversion (PDF/Docx → Markdown) ───────────────
 
+    async def convert_and_ingest_batch(
+        self,
+        folder_relative_path: Optional[str] = "IEEE Reports",
+        file_relative_paths: Optional[list[str]] = None,
+        output_subfolder: str = "Markdown Reports"
+    ) -> dict:
+        """
+        Batch convert uploaded non-Markdown documents (PDF, DOCX, DOC, HTML, TXT)
+        into clean Markdown (.md) notes in the Obsidian vault and auto-ingest into ChromaDB.
+        """
+        if not self.vault_path or not os.path.exists(self.vault_path):
+            raise ValueError("Vault path is not configured or does not exist.")
+
+        output_dir = os.path.join(self.vault_path, output_subfolder)
+        os.makedirs(output_dir, exist_ok=True)
+
+        target_files = []
+
+        if file_relative_paths:
+            for rel in file_relative_paths:
+                full_p = os.path.join(self.vault_path, rel) if not os.path.isabs(rel) else rel
+                if os.path.exists(full_p):
+                    target_files.append(full_p)
+        elif folder_relative_path:
+            full_folder = os.path.join(self.vault_path, folder_relative_path) if not os.path.isabs(folder_relative_path) else folder_relative_path
+            if os.path.exists(full_folder):
+                supported_exts = {".pdf", ".docx", ".doc", ".html", ".txt"}
+                for root, _, filenames in os.walk(full_folder):
+                    for fn in filenames:
+                        ext = os.path.splitext(fn)[1].lower()
+                        if ext in supported_exts:
+                            target_files.append(os.path.join(root, fn))
+
+        converted_results = []
+        errors = []
+
+        for fp in target_files:
+            try:
+                fname = os.path.basename(fp)
+                base_name = os.path.splitext(fname)[0]
+                md_filename = f"{base_name}.md"
+                md_filepath = os.path.join(output_dir, md_filename)
+
+                # Process file to extract structured text & tables
+                proc_res = await self.doc_processor.process_file(fp)
+
+                # Construct clean Markdown content with YAML frontmatter
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                md_content = f"""---
+title: "{base_name.replace('_', ' ')}"
+original_file: "{fname}"
+converted_at: "{now_str}"
+type: converted-research-document
+tags:
+  - converted-doc
+  - ieee-report
+  - research-literature
+---
+
+# {base_name.replace('_', ' ')}
+
+> [!INFO] Converted Document Metadata
+> **Original Source:** `{fname}`  
+> **Pages:** {proc_res.page_count}  
+> **OCR Applied:** {proc_res.ocr_applied}  
+> **Extracted Chunks:** {len(proc_res.chunks)}  
+
+---
+
+{proc_res.text}
+"""
+                with open(md_filepath, "w", encoding="utf-8") as f:
+                    f.write(md_content)
+
+                # Auto ingest converted Markdown file into ChromaDB
+                rel_path = os.path.relpath(md_filepath, self.vault_path)
+                vf = VaultFile(
+                    path=md_filepath,
+                    name=md_filename,
+                    relative_path=rel_path,
+                    size=os.path.getsize(md_filepath),
+                    modified=datetime.now(),
+                    hash=self._quick_hash(md_filepath),
+                    is_markdown=True,
+                    tags=["converted-doc", "ieee-report"]
+                )
+                await self._ingest_file(vf)
+
+                converted_results.append({
+                    "original_file": fname,
+                    "markdown_file": md_filename,
+                    "markdown_path": md_filepath,
+                    "relative_path": rel_path,
+                    "chunk_count": len(proc_res.chunks),
+                    "page_count": proc_res.page_count
+                })
+            except Exception as e:
+                err_msg = f"Failed to convert {os.path.basename(fp)}: {str(e)}"
+                logger.error(err_msg, exc_info=True)
+                errors.append(err_msg)
+
+        await self.update_dashboard()
+
+        return {
+            "status": "success",
+            "total_requested": len(target_files),
+            "converted_count": len(converted_results),
+            "output_directory": os.path.relpath(output_dir, self.vault_path),
+            "converted_files": converted_results,
+            "errors": errors
+        }
+
+    # ── IEEE Markdown to PDF Compilation ─────────────────────────────
+
+    async def convert_to_ieee_pdf(
+        self,
+        file_path: Optional[str] = None,
+        markdown_content: Optional[str] = None,
+        output_filename: Optional[str] = None
+    ) -> dict:
+        """
+        Convert a Markdown research paper into an authentic 2-column IEEE PDF.
+        """
+        if not self.vault_path or not os.path.exists(self.vault_path):
+            raise ValueError("Vault path is not configured or does not exist.")
+
+        if not markdown_content:
+            if not file_path:
+                raise ValueError("Either file_path or markdown_content must be provided.")
+            
+            full_path = file_path if os.path.isabs(file_path) else os.path.join(self.vault_path, file_path)
+            if not os.path.exists(full_path):
+                raise FileNotFoundError(f"Markdown file not found: {file_path}")
+            
+            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                markdown_content = f.read()
+
+        # Determine output filename
+        if not output_filename:
+            match = re.search(r"^#\s+(.+)", markdown_content, re.MULTILINE)
+            title = match.group(1).strip() if match else "IEEE_Research_Paper"
+            safe_title = re.sub(r'[\\/*?:"<>|]', "", title).replace(" ", "_")[:60]
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"{safe_title}_{timestamp}.pdf"
+
+        gen_dir = os.path.join(self.vault_path, "Generated Papers")
+        pdf_path = os.path.join(gen_dir, output_filename)
+
+        # Render PDF via ReportLab IEEE PDF Renderer
+        self.pdf_renderer.render_markdown_to_pdf(markdown_content, pdf_path)
+        await self.update_dashboard()
+
+        return {
+            "status": "success",
+            "pdf_filename": output_filename,
+            "pdf_path": pdf_path,
+            "relative_path": os.path.relpath(pdf_path, self.vault_path)
+        }
 
     # ── Command Processing ────────────────────────────────────────
 

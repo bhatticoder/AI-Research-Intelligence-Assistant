@@ -72,6 +72,7 @@ class RAGService:
                 "chunk_index": i,
                 "document_id": meta.get("document_id", "unknown"),
                 "chunk_text": doc[:200] + "..." if len(doc) > 200 else doc,
+                "content": doc[:300] + "..." if len(doc) > 300 else doc,
                 "similarity_score": round(similarity, 4),
                 "metadata": meta,
             }

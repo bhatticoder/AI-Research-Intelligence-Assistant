@@ -21,13 +21,27 @@ class VaultConfigRequest(BaseModel):
     vault_path: str
 
 
+class ConvertDocumentsRequest(BaseModel):
+    folder_path: Optional[str] = "IEEE Reports"
+    file_paths: Optional[List[str]] = None
+    output_subfolder: Optional[str] = "Markdown Reports"
+
+
 class GeneratePaperRequest(BaseModel):
     topic: str
     target_journal: Optional[str] = "IEEE Transactions on Neural Networks and Learning Systems"
     requirements: Optional[str] = ""
+    proposal_file_path: Optional[str] = ""
+    proposal_content: Optional[str] = ""
     n_sources: Optional[int] = 8
-    push_to_overleaf: Optional[bool] = True   # NEW: auto-push to Overleaf
-    overleaf_browser: Optional[str] = "chrome"  # NEW: which browser has Overleaf session
+    push_to_overleaf: Optional[bool] = True   # auto-push to Overleaf
+    overleaf_browser: Optional[str] = "chrome"  # which browser has Overleaf session
+
+
+class ConvertToIEEEPDFRequest(BaseModel):
+    file_path: Optional[str] = None
+    markdown_content: Optional[str] = None
+    output_filename: Optional[str] = None
 
 
 class QueryRequest(BaseModel):
@@ -98,13 +112,25 @@ async def generate_paper(req: GeneratePaperRequest):
         vault_path = obsidian_service.vault_path or r"G:\Obsedian Files\ARIA"
         gen_dir = os.path.join(vault_path, "Generated Papers")
 
+        # ── Step 0: Extract Proposal Text ───────────────────────────────
+        proposal_text = req.proposal_content or ""
+        if req.proposal_file_path:
+            prop_full_path = req.proposal_file_path if os.path.isabs(req.proposal_file_path) else os.path.join(vault_path, req.proposal_file_path)
+            if os.path.exists(prop_full_path):
+                with open(prop_full_path, "r", encoding="utf-8", errors="replace") as pf:
+                    proposal_text = pf.read() + "\n\n" + proposal_text
+
+        combined_reqs = (req.requirements or "").strip()
+        if proposal_text:
+            combined_reqs = f"RESEARCH PROPOSAL CONTEXT:\n{proposal_text[:3500]}\n\nADDITIONAL TECHNICAL REQUIREMENTS:\n{combined_reqs}"
+
         # ── Step 1: Generate paper (Markdown + LaTeX) ─────────────────────
         result = await obsidian_service.paper_generator.generate_paper(
             topic=req.topic,
             journal=req.target_journal or "IEEE Transactions on Neural Networks and Learning Systems",
-            requirements=req.requirements or "",
+            requirements=combined_reqs,
             output_dir=gen_dir,
-            n_sources=req.n_sources or 8,
+            n_sources=req.n_sources or 10,
         )
 
         # ── Step 2: Update Obsidian Dashboard ─────────────────────────────
@@ -176,6 +202,41 @@ async def query_knowledge_base(req: QueryRequest):
         return results
     except Exception as e:
         raise HTTPException(500, f"Query failed: {str(e)}")
+
+
+@router.post("/convert-documents")
+async def convert_documents(req: ConvertDocumentsRequest):
+    """
+    Batch convert non-Markdown documents (PDF, DOCX, DOC, HTML, TXT) in vault
+    to Markdown (.md) notes and auto-ingest them into ChromaDB.
+    """
+    try:
+        result = await obsidian_service.convert_and_ingest_batch(
+            folder_relative_path=req.folder_path,
+            file_relative_paths=req.file_paths,
+            output_subfolder=req.output_subfolder or "Markdown Reports"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[API] Batch document conversion failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Document conversion failed: {str(e)}")
+
+
+@router.post("/convert-to-ieee-pdf")
+async def convert_to_ieee_pdf(req: ConvertToIEEEPDFRequest):
+    """
+    Convert a Markdown research paper into an authentic 2-column IEEE PDF document.
+    """
+    try:
+        result = await obsidian_service.convert_to_ieee_pdf(
+            file_path=req.file_path,
+            markdown_content=req.markdown_content,
+            output_filename=req.output_filename
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[API] IEEE PDF rendering failed: {e}", exc_info=True)
+        raise HTTPException(500, f"IEEE PDF rendering failed: {str(e)}")
 
 
 @router.post("/dashboard/refresh")
