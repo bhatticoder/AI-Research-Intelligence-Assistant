@@ -105,7 +105,7 @@ class ObsidianSyncService:
         vault = Path(self.vault_path)
         files = []
 
-        supported = {".md", ".markdown", ".txt", ".pdf", ".docx", ".html"}
+        supported = {".md", ".markdown", ".txt", ".pdf", ".docx", ".html", ".csv"}
         skip_dirs = {".obsidian", ".trash", ".git", "node_modules"}
 
         for root, dirs, filenames in os.walk(vault):
@@ -290,7 +290,7 @@ class ObsidianSyncService:
         elif folder_relative_path:
             full_folder = os.path.join(self.vault_path, folder_relative_path) if not os.path.isabs(folder_relative_path) else folder_relative_path
             if os.path.exists(full_folder):
-                supported_exts = {".pdf", ".docx", ".doc", ".html", ".txt"}
+                supported_exts = {".pdf", ".docx", ".doc", ".html", ".txt", ".csv"}
                 for root, _, filenames in os.walk(full_folder):
                     for fn in filenames:
                         ext = os.path.splitext(fn)[1].lower()
@@ -300,19 +300,22 @@ class ObsidianSyncService:
         converted_results = []
         errors = []
 
-        for fp in target_files:
-            try:
-                fname = os.path.basename(fp)
-                base_name = os.path.splitext(fname)[0]
-                md_filename = f"{base_name}.md"
-                md_filepath = os.path.join(output_dir, md_filename)
+        semaphore = asyncio.Semaphore(4)
 
-                # Process file to extract structured text & tables
-                proc_res = await self.doc_processor.process_file(fp)
+        async def _process_single_file(fp: str):
+            async with semaphore:
+                try:
+                    fname = os.path.basename(fp)
+                    base_name = os.path.splitext(fname)[0]
+                    md_filename = f"{base_name}.md"
+                    md_filepath = os.path.join(output_dir, md_filename)
 
-                # Construct clean Markdown content with YAML frontmatter
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                md_content = f"""---
+                    # Process file to extract structured text & tables
+                    proc_res = await self.doc_processor.process_file(fp)
+
+                    # Construct clean Markdown content with YAML frontmatter
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    md_content = f"""---
 title: "{base_name.replace('_', ' ')}"
 original_file: "{fname}"
 converted_at: "{now_str}"
@@ -335,35 +338,42 @@ tags:
 
 {proc_res.text}
 """
-                with open(md_filepath, "w", encoding="utf-8") as f:
-                    f.write(md_content)
+                    with open(md_filepath, "w", encoding="utf-8") as f:
+                        f.write(md_content)
 
-                # Auto ingest converted Markdown file into ChromaDB
-                rel_path = os.path.relpath(md_filepath, self.vault_path)
-                vf = VaultFile(
-                    path=md_filepath,
-                    name=md_filename,
-                    relative_path=rel_path,
-                    size=os.path.getsize(md_filepath),
-                    modified=datetime.now(),
-                    hash=self._quick_hash(md_filepath),
-                    is_markdown=True,
-                    tags=["converted-doc", "ieee-report"]
-                )
-                await self._ingest_file(vf)
+                    # Auto ingest converted Markdown file into ChromaDB
+                    rel_path = os.path.relpath(md_filepath, self.vault_path)
+                    vf = VaultFile(
+                        path=md_filepath,
+                        name=md_filename,
+                        relative_path=rel_path,
+                        size=os.path.getsize(md_filepath),
+                        modified=datetime.now(),
+                        hash=self._quick_hash(md_filepath),
+                        is_markdown=True,
+                        tags=["converted-doc", "ieee-report"]
+                    )
+                    await self._ingest_file(vf)
 
-                converted_results.append({
-                    "original_file": fname,
-                    "markdown_file": md_filename,
-                    "markdown_path": md_filepath,
-                    "relative_path": rel_path,
-                    "chunk_count": len(proc_res.chunks),
-                    "page_count": proc_res.page_count
-                })
-            except Exception as e:
-                err_msg = f"Failed to convert {os.path.basename(fp)}: {str(e)}"
-                logger.error(err_msg, exc_info=True)
-                errors.append(err_msg)
+                    return {
+                        "original_file": fname,
+                        "markdown_file": md_filename,
+                        "markdown_path": md_filepath,
+                        "relative_path": rel_path,
+                        "chunk_count": len(proc_res.chunks),
+                        "page_count": proc_res.page_count
+                    }, None
+                except Exception as e:
+                    err_msg = f"Failed to convert {os.path.basename(fp)}: {str(e)}"
+                    logger.error(err_msg, exc_info=True)
+                    return None, err_msg
+
+        results = await asyncio.gather(*[_process_single_file(fp) for fp in target_files])
+        for res, err in results:
+            if res:
+                converted_results.append(res)
+            if err:
+                errors.append(err)
 
         await self.update_dashboard()
 

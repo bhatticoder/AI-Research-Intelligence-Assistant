@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 from config import get_settings
 from database import init_db, close_db
 from routes.obsidian import router as obsidian_router, obsidian_service
-from routes.overleaf import router as overleaf_router
 from services.rag import RAGService
 
 settings = get_settings()
@@ -31,29 +30,29 @@ logger = logging.getLogger("aria")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events."""
-    logger.info("🚀 Starting ARIA - AI Research & Intelligence Assistant")
+    logger.info("Starting ARIA - AI Research & Intelligence Assistant")
     await init_db()
-    logger.info("✅ Database initialized")
+    logger.info("Database initialized")
 
     # Start Obsidian vault watcher & command runner daemon
     try:
         await obsidian_service.start_watching()
         # Trigger initial sync & dashboard render
         asyncio.create_task(obsidian_service.sync())
-        logger.info("👁️ Obsidian Vault Watcher & Command Daemon active")
+        logger.info("Obsidian Vault Watcher & Command Daemon active")
     except Exception as e:
         logger.error(f"Failed to start Obsidian watcher: {e}")
 
     yield
 
-    logger.info("🛑 Shutting down ARIA")
+    logger.info("Shutting down ARIA")
     await obsidian_service.stop_watching()
     await close_db()
 
 
 app = FastAPI(
     title="ARIA - AI Research & Intelligence Assistant",
-    description="Local AI Research Assistant with Obsidian Frontend & Overleaf Integration",
+    description="Local AI Research Assistant with Obsidian Frontend",
     version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -82,7 +81,6 @@ app.add_middleware(
 )
 
 app.include_router(obsidian_router)
-app.include_router(overleaf_router)
 
 
 class ConnectionManager:

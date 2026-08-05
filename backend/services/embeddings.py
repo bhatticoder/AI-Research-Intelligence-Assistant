@@ -2,6 +2,7 @@
 Embedding Service - Sentence Transformers + ChromaDB vector operations.
 """
 
+import asyncio
 import logging
 from typing import Optional
 import chromadb
@@ -161,30 +162,46 @@ class EmbeddingService:
         return repaired > 0
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for a list of texts using Ollama."""
+        """Generate embeddings for a list of texts using Ollama batch processing."""
+        if not texts:
+            return []
+
         import ollama as ollama_lib
         client = ollama_lib.AsyncClient(host=settings.ollama_base_url)
 
         embeddings = []
-        # Batch in groups of 32 for efficiency
         batch_size = 32
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
-            for text in batch:
-                try:
-                    response = await client.embed(
-                        model=settings.ollama_embed_model,
-                        input=text,
-                    )
-                    vecs = getattr(response, "embeddings", None) or (response.get("embeddings") if isinstance(response, dict) else None)
-                    if vecs:
-                        embeddings.append(vecs[0])
-                    else:
-                        embeddings.append(response["embeddings"][0])
-                except Exception as e:
-                    logger.error(f"Embedding error: {e}")
-                    # Return zero vector as fallback
+            try:
+                # Try high-speed batch embed request
+                response = await client.embed(
+                    model=settings.ollama_embed_model,
+                    input=batch,
+                )
+                vecs = getattr(response, "embeddings", None) or (response.get("embeddings") if isinstance(response, dict) else None)
+                if vecs and isinstance(vecs, list) and len(vecs) == len(batch):
+                    embeddings.extend(vecs)
+                    continue
+            except Exception as batch_err:
+                logger.warning(f"Native Ollama batch embed error ({batch_err}), falling back to concurrent single requests.")
+
+            # Fallback: concurrent requests using asyncio.gather
+            tasks = [
+                client.embed(model=settings.ollama_embed_model, input=t)
+                for t in batch
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    logger.error(f"Embedding error for chunk: {res}")
                     embeddings.append([0.0] * 768)
+                else:
+                    v = getattr(res, "embeddings", None) or (res.get("embeddings") if isinstance(res, dict) else None)
+                    if v:
+                        embeddings.append(v[0])
+                    else:
+                        embeddings.append([0.0] * 768)
 
         return embeddings
 

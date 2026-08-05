@@ -1,5 +1,5 @@
 """
-Obsidian Routes v2.0 — Vault sync, IEEE paper generation + Overleaf push, RAG search.
+Obsidian Routes v2.0 — Vault sync, IEEE paper generation, document conversion, RAG search.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -34,8 +34,6 @@ class GeneratePaperRequest(BaseModel):
     proposal_file_path: Optional[str] = ""
     proposal_content: Optional[str] = ""
     n_sources: Optional[int] = 8
-    push_to_overleaf: Optional[bool] = True   # auto-push to Overleaf
-    overleaf_browser: Optional[str] = "chrome"  # which browser has Overleaf session
 
 
 class ConvertToIEEEPDFRequest(BaseModel):
@@ -101,12 +99,8 @@ async def generate_paper(req: GeneratePaperRequest):
     """
     Generate a complete IEEE research paper:
     1. Retrieve relevant literature from ChromaDB (researcher's own indexed papers)
-    2. Generate full paper via local LLM (Markdown + IEEEtran LaTeX)
+    2. Generate full paper via local LLM (Markdown)
     3. Save Markdown to Obsidian vault's Generated Papers/ folder
-    4. Optionally push LaTeX to Overleaf and return the project URL
-
-    The Obsidian plugin displays a clickable 'Open in Overleaf' button
-    with the returned project URL.
     """
     try:
         vault_path = obsidian_service.vault_path or r"G:\Obsedian Files\ARIA"
@@ -136,31 +130,8 @@ async def generate_paper(req: GeneratePaperRequest):
         # ── Step 2: Update Obsidian Dashboard ─────────────────────────────
         await obsidian_service.update_dashboard()
 
-        # ── Step 3: Push to Overleaf (optional) ───────────────────────────
-        overleaf_result = None
-        if req.push_to_overleaf and result.get("tex_content"):
-            try:
-                from services.overleaf_service import OverleafService
-                ov_svc = OverleafService(browser=req.overleaf_browser or "chrome")
-                overleaf_result = await ov_svc.push_paper_to_overleaf(
-                    title=result["title"],
-                    tex_content=result["tex_content"],
-                    bib_content=result.get("bib_content", ""),
-                    journal=req.target_journal or "IEEE Transactions",
-                )
-                logger.info(
-                    f"[API] Paper pushed to Overleaf: {overleaf_result.get('project_url')}"
-                )
-            except Exception as ov_exc:
-                logger.warning(f"[API] Overleaf push failed (non-fatal): {ov_exc}")
-                overleaf_result = {
-                    "status": "failed",
-                    "error": str(ov_exc),
-                    "project_url": None,
-                }
-
         # ── Build response ─────────────────────────────────────────────────
-        response = {
+        return {
             "status": "success",
             "message": "IEEE Paper generated successfully",
             "paper": {
@@ -175,19 +146,6 @@ async def generate_paper(req: GeneratePaperRequest):
                 "content_preview": (result.get("content", "")[:500] + "…"),
             },
         }
-
-        if overleaf_result:
-            response["overleaf"] = {
-                "status": overleaf_result.get("status"),
-                "project_url": overleaf_result.get("project_url"),
-                "project_id": overleaf_result.get("project_id"),
-                "project_name": overleaf_result.get("project_name"),
-                "error": overleaf_result.get("error"),
-            }
-        else:
-            response["overleaf"] = None
-
-        return response
 
     except Exception as e:
         logger.error(f"[API] Paper generation failed: {e}", exc_info=True)

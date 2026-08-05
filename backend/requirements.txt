@@ -1,5 +1,5 @@
 # ============================================
-# ARIA Backend Dependencies (Obsidian + Overleaf)
+# ARIA Backend Dependencies (Obsidian Edition)
 # ============================================
 
 # --- Web Framework ---
@@ -29,6 +29,9 @@ chardet==5.2.0
 pymupdf==1.23.8
 pyyaml==6.0
 aiofiles==24.1.0
+paddleocr>=3.7.0
+paddlepaddle>=3.3.1
+pdf2image>=1.17.0
 
 # --- Data & Utilities ---
 pandas==2.2.3
@@ -39,8 +42,3 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 orjson==3.10.12
 numpy==1.26.4
-
-# --- Overleaf Integration ---
-pyoverleaf>=0.4.0              # Unofficial Overleaf Python API
-websocket-client>=1.7.0        # Required by pyoverleaf for real-time connections
-browser-cookie3>=0.19.1        # Reads Chrome/Firefox cookies for Overleaf auth

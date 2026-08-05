@@ -37,7 +37,7 @@ settings = get_settings()
 # MASTER PROMPT  (v2.0 — production quality)
 # ══════════════════════════════════════════════════════════════════
 
-IEEE_PAPER_PROMPT = """\
+IEEE_PAPER_PROMPT = r"""\
 
 You are a Distinguished Principal Researcher and IEEE Fellow with 25 years of publication experience. \
 You are writing a rigorous, COMPLETE IEEE Transactions research paper in Markdown. \
@@ -137,24 +137,24 @@ flowchart TD
 
 ### B. Mathematical Formulation
 
-Let the input document corpus be $\mathcal{D} = \{{d_1, d_2, \ldots, d_N\}}$ where each $d_i$ is segmented into chunks $\mathcal{C}_i = \{{c_{{i,1}}, \ldots, c_{{i,K}}\}}$.
+Let the input document corpus be $\mathcal{{D}} = \{{d_1, d_2, \ldots, d_N\}}$ where each $d_i$ is segmented into chunks $\mathcal{{C}}_i = \{{c_{{i,1}}, \ldots, c_{{i,K}}\}}$.
 
 **Embedding function:** For a chunk $c$, the embedding is computed as:
 
 $$
-\mathbf{e}(c) = \text{Enc}_\theta(c) \in \mathbb{{R}}^d
+\mathbf{{e}}(c) = \text{{Enc}}_\theta(c) \in \mathbb{{R}}^d
 $$
 
-where $\text{Enc}_\theta$ is the sentence encoder parameterised by $\theta$ and $d$ is the embedding dimension.
+where $\text{{Enc}}_\theta$ is the sentence encoder parameterised by $\theta$ and $d$ is the embedding dimension.
 
 **Retrieval scoring:** Given query $q$, top-$K$ chunks are retrieved by cosine similarity:
 
 $$
-\text{sim}(q, c) = \frac{{\mathbf{{e}}(q)^\top \mathbf{{e}}(c)}}{{\|\mathbf{{e}}(q)\| \cdot \|\mathbf{{e}}(c)\|}}
+\text{{sim}}(q, c) = \frac{{\mathbf{{e}}(q)^\top \mathbf{{e}}(c)}}{{\|\mathbf{{e}}(q)\| \cdot \|\mathbf{{e}}(c)\|}}
 $$
 
 $$
-\mathcal{{R}}(q) = \\underset{{c \in \mathcal{{C}}}}{{\text{{top-}}K}} \; \text{{sim}}(q, c)
+\mathcal{{R}}(q) = \underset{{c \in \mathcal{{C}}}}{{\text{{top-}}K}} \; \text{{sim}}(q, c)
 $$
 
 **Generation objective:** The language model $p_\phi$ is conditioned on the retrieved context:
@@ -308,8 +308,6 @@ class IEEEPaperGenerator:
     def __init__(self):
         self.llm = LLMService()
         self.embeddings = EmbeddingService()
-        # Lazy import — only loaded when Overleaf push is requested
-        self._overleaf_latex_builder = None
 
     # ── Public API ───────────────────────────────────────────────
 
@@ -387,11 +385,7 @@ class IEEEPaperGenerator:
                 logger.error(f"[IEEEGen] Failed to save paper: {exc}")
                 file_path = None
 
-        # ── Step 6: Build LaTeX version (for Overleaf push) ──────────────────
-        tex_content, bib_content = self._build_latex_from_markdown(
-            paper_body, paper_title, journal, sources
-        )
-
+        # ── Step 6: Return result dict ──────────────────
         return {
             "title": paper_title,
             "filename": filename,
@@ -401,29 +395,11 @@ class IEEEPaperGenerator:
             "content": full_md,
             "sources": sources,
             "generated_at": datetime.now().isoformat(),
-            # LaTeX artifacts for Overleaf push
-            "tex_content": tex_content,
-            "bib_content": bib_content,
         }
 
     def _build_latex_from_markdown(self, markdown_body: str, title: str, journal: str, sources: List[Dict]) -> tuple:
-        """
-        Build an IEEEtran LaTeX (.tex + .bib) from the generated Markdown paper body.
-
-        Strategy:
-          - Extract abstract from the '## Abstract' section
-          - Extract each numbered section (## I. ... through ## VI. ...)
-          - Translate Markdown section content to LaTeX-safe text
-          - Build a .bib entry for each ChromaDB source
-
-        Returns:
-            Tuple of (tex_content: str, bib_content: str)
-        """
-        try:
-            from services.overleaf_service import build_ieeeetran_latex, _latex_escape
-        except ImportError:
-            logger.warning("[IEEEGen] overleaf_service not available — skipping LaTeX build")
-            return "", ""
+        """Build an IEEEtran LaTeX (.tex + .bib) from generated Markdown paper body."""
+        return "", ""
 
         # ── Extract abstract ──────────────────────────────────────────────
         abstract = ""

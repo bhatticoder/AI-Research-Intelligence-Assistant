@@ -4,7 +4,6 @@ from services.document_processor import DocumentProcessor
 from services.rag import RAGService
 from services.obsidian import ObsidianSyncService
 from services.ieee_paper_generator import IEEEPaperGenerator
-from services.overleaf_service import OverleafService
 
 __all__ = [
     "LLMService",
@@ -13,5 +12,4 @@ __all__ = [
     "RAGService",
     "ObsidianSyncService",
     "IEEEPaperGenerator",
-    "OverleafService",
 ]

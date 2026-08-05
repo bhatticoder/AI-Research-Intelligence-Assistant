@@ -48,10 +48,6 @@ class Settings(BaseSettings):
     obsidian_vault_path: Optional[str] = None
     obsidian_sync_interval: int = 300  # seconds
 
-    # --- Overleaf Integration ---
-    overleaf_browser: str = "chrome"       # 'chrome' or 'firefox' — browser where user is logged into Overleaf
-    overleaf_enabled: bool = True          # Set to False to disable Overleaf push globally
-
     # --- News ---
     news_api_key: Optional[str] = None
     arxiv_max_results: int = 20
