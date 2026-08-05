@@ -16,38 +16,29 @@ ARIA is a privacy-first AI system designed for researchers, students, journalist
 - [Ollama](https://ollama.com/) (installed locally for LLMs)
 - [Obsidian](https://obsidian.md/) (Optional, but highly recommended)
 
-## Quick Start (Docker Deployment - Recommended)
+## Quick Start (1-Click Install)
 
-The easiest way to run ARIA and let anyone use it is via Docker Compose. This will spin up the Python backend and ChromaDB vector database.
+We provide interactive setup scripts that will automatically configure your environment and start the application via Docker.
 
-### 1. Set your Obsidian Vault Path
-By default, Docker expects an Obsidian vault to be present. You can export an environment variable before running Docker to set your vault path:
+### For Windows Users:
+1. Double-click the `setup.bat` file in the project directory, OR run it from your terminal:
+   ```cmd
+   setup.bat
+   ```
+2. When prompted, paste the full path to your Obsidian vault (e.g., `C:\Users\Name\Documents\MyVault`).
 
-**Windows (PowerShell):**
-```powershell
-$env:OBSIDIAN_VAULT_PATH="C:\path\to\your\vault"
-```
-*(If no path is set, it will create a `./vault` folder in the project directory.)*
+### For Mac / Linux Users:
+1. Open your terminal and run the setup script:
+   ```bash
+   chmod +x setup.sh
+   ./setup.sh
+   ```
+2. When prompted, paste the full path to your Obsidian vault (e.g., `/Users/Name/Documents/MyVault`).
 
-**Mac/Linux:**
-```bash
-export OBSIDIAN_VAULT_PATH="/path/to/your/vault"
-```
+The script will automatically build the backend, download ChromaDB, and connect it to your Obsidian vault!
 
-### 2. Start the Application
-Run the following command in the root of the project:
-
-```bash
-docker-compose up -d --build
-```
-This will:
-- Build the Python backend and install OCR/PDF processing dependencies.
-- Start ChromaDB.
-- Mount your Obsidian vault into the container.
-- Expose the API on `http://localhost:8080`.
-
-### 3. Setup Ollama Models
-ARIA relies on local Ollama models. Ensure Ollama is running and download the necessary models:
+### Setup Ollama Models
+ARIA relies on local Ollama models. Ensure Ollama is running on your machine and download the necessary models:
 ```bash
 ollama run llama3.2
 ollama pull nomic-embed-text
