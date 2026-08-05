@@ -1,5 +1,26 @@
 services:
-  # ChromaDB - Vector database for embeddings & RAG
+  backend:
+    build:
+      context: ./backend
+    container_name: aria-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/sqlite.db:/app/sqlite.db
+      - ${OBSIDIAN_VAULT_PATH:-./vault}:/vault
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./sqlite.db
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OBSIDIAN_VAULT_PATH=/vault
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   chromadb:
     image: chromadb/chroma:latest
     container_name: aria-chromadb
